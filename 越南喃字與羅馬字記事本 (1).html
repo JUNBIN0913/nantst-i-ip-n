@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>漢喃記事簿 - 越南喃字與羅馬字編輯器</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome 圖示庫 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <style>
+    /* 1. 內嵌 NomNaTong 喃字字體（包含多組可靠 CDN 備援與本機字體宣告） */
+    @font-face {
+      font-family: 'NomNaTongEmbed';
+      src: local('NomNaTong'), 
+           local('NomNaTong-Regular'),
+           url('https://cdn.jsdelivr.net/gh/chunom/nomnatong@master/NomNaTong-Regular.ttf') format('truetype'),
+           url('https://raw.githubusercontent.com/chunom/nomnatong/master/NomNaTong-Regular.ttf') format('truetype');
+      font-display: swap;
+    }
+
+    /* 2. 字體層疊鏈：
+       - Times New Roman 優先渲染英文字母與越南羅馬字（國語字聲調符號，如 ă, â, đ, ê, ô, ơ, ư, ầ, ễ 等）。
+       - 遇到喃字或擴展漢字時，自動降級調用 NomNaTongCustom（快取字體）與 NomNaTongEmbed（內嵌字體）。
+    */
+    .nom-editor-font {
+      font-family: 'Times New Roman', 'Times', 'NomNaTongCustom', 'NomNaTongEmbed', 'NomNaTong', 'HAN NOM A', 'HAN NOM B', 'MingLiU-ExtB', 'SimSun-ExtB', serif;
+    }
+
+    .times-font {
+      font-family: 'Times New Roman', 'Times', serif;
+    }
+
+    /* A4 紙張與直書排版效果 */
+    .paper-sheet {
+      min-height: 297mm;
+      width: 210mm;
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+    }
+
+    @media (max-width: 850px) {
+      .paper-sheet {
+        width: 100% !important;
+        min-height: auto !important;
+        padding: 1.25rem !important;
+        border-radius: 0.5rem;
+      }
+    }
+
+    /* 豎排直書模式 */
+    .vertical-mode {
+      writing-mode: vertical-rl;
+      text-orientation: upright;
+      letter-spacing: 0.12em;
+    }
+    .vertical-mode p {
+      margin-left: 1.5rem;
+      margin-right: 0;
+    }
+
+    /* Ruby 標音美化 */
+    ruby {
+      ruby-align: center;
+      ruby-position: over;
+    }
+    rt {
+      font-family: 'Times New Roman', 'Times', serif;
+      font-size: 0.55em;
+      color: #0284c7;
+      user-select: none;
+      font-weight: 500;
+      letter-spacing: normal;
+    }
+
+    /* 滾動條美化 */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* 列印樣式 */
+    @media print {
+      body {
+        background: white !important;
+        padding: 0 !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .paper-sheet {
+        box-shadow: none !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col antialiased select-none">
+
+  <!-- 頂部導覽列 -->
+  <header class="no-print bg-slate-900 text-white px-3 sm:px-4 py-2.5 flex items-center justify-between shadow-md border-b border-slate-700 z-20">
+    <div class="flex items-center gap-2.5">
+      <!-- 手機端開啟清單按鈕 -->
+      <button id="btn-toggle-mobile-sidebar" class="md:hidden p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 focus:outline-none" title="開啟記事清單">
+        <i class="fa-solid fa-bars-staggered text-base"></i>
+      </button>
+
+      <div class="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center font-bold text-base shadow shrink-0">
+        喃
+      </div>
+      <div>
+        <h1 class="text-sm sm:text-base font-bold tracking-wide flex items-center gap-1.5">
+          漢喃記事簿 <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">Word版</span>
+        </h1>
+        <p class="text-[10px] text-slate-400 hidden sm:block">喃字套用 Nôm Na Tống ‧ 羅馬字套用 Times New Roman</p>
+      </div>
+    </div>
+
+    <!-- 檔案與操作按鈕 -->
+    <div class="flex items-center gap-1.5 sm:gap-2">
+      <button id="btn-save-note" class="bg-slate-800 hover:bg-slate-700 text-xs px-2.5 py-1.5 rounded-md border border-slate-600 flex items-center gap-1.5 transition text-slate-200">
+        <i class="fa-solid fa-floppy-disk text-emerald-400"></i>
+        <span class="hidden sm:inline">儲存</span>
+      </button>
+
+      <button id="btn-export-html" class="bg-slate-800 hover:bg-slate-700 text-xs px-2.5 py-1.5 rounded-md border border-slate-600 flex items-center gap-1.5 transition text-slate-200" title="匯出 HTML">
+        <i class="fa-solid fa-file-arrow-down text-blue-400"></i>
+        <span class="hidden sm:inline">匯出</span>
+      </button>
+
+      <button id="btn-print" class="bg-amber-600 hover:bg-amber-500 text-xs px-2.5 py-1.5 rounded-md flex items-center gap-1.5 transition font-semibold text-white" title="列印或轉存 PDF">
+        <i class="fa-solid fa-print"></i>
+        <span class="hidden sm:inline">列印/PDF</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Word 式 Ribbon 工具列 -->
+  <div class="no-print bg-white border-b border-slate-300 shadow-sm sticky top-0 z-30 overflow-x-auto">
+    <div class="max-w-7xl mx-auto px-2 sm:px-3 py-1.5 flex items-center gap-1 sm:gap-2 min-w-max">
+      
+      <!-- 手機/電腦端：記事清單快捷按鈕 -->
+      <button id="btn-quick-open-notes" class="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded text-xs font-semibold flex items-center gap-1.5 transition">
+        <i class="fa-solid fa-book-bookmark text-amber-600"></i> 記事清單 (<span id="total-notes-count">1</span>)
+      </button>
+
+      <!-- 復原 / 重做 -->
+      <div class="flex items-center border-l border-r border-slate-200 px-1 mx-0.5">
+        <button onclick="execCmd('undo')" title="復原 (Ctrl+Z)" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition">
+          <i class="fa-solid fa-rotate-left text-sm"></i>
+        </button>
+        <button onclick="execCmd('redo')" title="重做 (Ctrl+Y)" class="p-1.5 hover:bg-slate-100 rounded text-slate-600 transition">
+          <i class="fa-solid fa-rotate-right text-sm"></i>
+        </button>
+      </div>
+
+      <!-- 字號選擇（支援自 12px 開始） -->
+      <div class="flex items-center gap-1 border-r border-slate-200 pr-1.5 mr-0.5">
+        <span class="text-xs text-slate-500 hidden sm:inline">字號:</span>
+        <select id="font-size-select" onchange="changeDocFontSize(this.value)" class="text-xs bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-700 font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500">
+          <option value="12px">12px (極小)</option>
+          <option value="14px">14px (小)</option>
+          <option value="16px">16px (標準小)</option>
+          <option value="18px">18px (標準)</option>
+          <option value="20px" selected>20px (適中)</option>
+          <option value="24px">24px (稍大)</option>
+          <option value="28px">28px (大號)</option>
+          <option value="36px">36px (標題)</option>
+          <option value="48px">48px (特大)</option>
+        </select>
+      </div>
+
+      <!-- 文字格式 -->
+      <div class="flex items-center gap-0.5 border-r border-slate-200 pr-1.5 mr-0.5">
+        <button onclick="execCmd('bold')" title="粗體" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 font-bold transition w-7 h-7 flex items-center justify-center">
+          <i class="fa-solid fa-bold text-xs"></i>
+        </button>
+        <button onclick="execCmd('italic')" title="斜體" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 italic transition w-7 h-7 flex items-center justify-center">
+          <i class="fa-solid fa-italic text-xs"></i>
+        </button>
+        <button onclick="execCmd('underline')" title="底線" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 underline transition w-7 h-7 flex items-center justify-center">
+          <i class="fa-solid fa-underline text-xs"></i>
+        </button>
+        <button onclick="execCmd('strikeThrough')" title="刪除線" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 transition w-7 h-7 flex items-center justify-center">
+          <i class="fa-solid fa-strikethrough text-xs"></i>
+        </button>
+      </div>
+
+      <!-- 色彩控制 -->
+      <div class="flex items-center gap-1 border-r border-slate-200 pr-1.5 mr-0.5">
+        <label title="文字顏色" class="p-1.5 hover:bg-slate-100 rounded cursor-pointer relative flex items-center justify-center">
+          <i class="fa-solid fa-font text-slate-700 text-xs"></i>
+          <span class="absolute bottom-0.5 w-3 h-0.5 bg-red-600 rounded-sm" id="text-color-preview"></span>
+          <input type="color" onchange="setTextColor(this.value)" class="opacity-0 absolute w-0 h-0" value="#1e293b">
+        </label>
+
+        <label title="螢光筆高亮" class="p-1.5 hover:bg-slate-100 rounded cursor-pointer relative flex items-center justify-center">
+          <i class="fa-solid fa-highlighter text-slate-700 text-xs"></i>
+          <span class="absolute bottom-0.5 w-3 h-0.5 bg-yellow-300 rounded-sm" id="bg-color-preview"></span>
+          <input type="color" onchange="setHighlightColor(this.value)" class="opacity-0 absolute w-0 h-0" value="#fef08a">
+        </label>
+      </div>
+
+      <!-- 對齊 -->
+      <div class="flex items-center gap-0.5 border-r border-slate-200 pr-1.5 mr-0.5">
+        <button onclick="execCmd('justifyLeft')" title="靠左對齊" class="p-1.5 hover:bg-slate-100 rounded text-slate-600">
+          <i class="fa-solid fa-align-left text-xs"></i>
+        </button>
+        <button onclick="execCmd('justifyCenter')" title="置中對齊" class="p-1.5 hover:bg-slate-100 rounded text-slate-600">
+          <i class="fa-solid fa-align-center text-xs"></i>
+        </button>
+        <button onclick="execCmd('justifyRight')" title="靠右對齊" class="p-1.5 hover:bg-slate-100 rounded text-slate-600">
+          <i class="fa-solid fa-align-right text-xs"></i>
+        </button>
+      </div>
+
+      <!-- 喃字專屬工具：Ruby 標註、直書、字符盤 -->
+      <div class="flex items-center gap-1.5">
+        <button id="btn-ruby-dialog" title="為選取的喃字加入國語字讀音（Ruby 標音）" class="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded text-xs font-semibold flex items-center gap-1 transition">
+          <i class="fa-solid fa-language text-amber-600"></i> 標音 (Ruby)
+        </button>
+
+        <button id="btn-toggle-vertical" title="切換直排/橫排" class="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1 transition">
+          <i class="fa-solid fa-arrows-up-down"></i> <span id="layout-text">直書模式</span>
+        </button>
+
+        <button id="btn-char-picker" title="常用喃字與越南語字符盤" class="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-slate-700 rounded text-xs font-semibold flex items-center gap-1 transition">
+          <i class="fa-solid fa-table-cells text-slate-500"></i> 字符盤
+        </button>
+
+        <button id="btn-new-doc" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 rounded text-xs font-semibold flex items-center gap-1 transition">
+          <i class="fa-solid fa-plus text-emerald-600"></i> 新筆記
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 主編輯區域 + 側邊欄容器 -->
+  <main class="flex-1 flex overflow-hidden relative">
+    
+    <!-- 遮罩背景（手機端側邊欄開啟時使用） -->
+    <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-900/60 z-30 hidden md:hidden backdrop-blur-sm transition-opacity"></div>
+
+    <!-- 左側邊欄：記事清單（支援手機滑出抽屜與電腦固定顯示） -->
+    <aside id="sidebar-notes" class="fixed md:static inset-y-0 left-0 z-40 w-72 sm:w-80 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full md:translate-x-0 shrink-0 shadow-xl md:shadow-none">
+      
+      <!-- 側邊欄標題 -->
+      <div class="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+        <span class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+          <i class="fa-solid fa-book-bookmark text-amber-600"></i> 我的記事列表
+        </span>
+        <div class="flex items-center gap-1">
+          <button id="btn-add-note-tab" class="text-xs bg-amber-600 hover:bg-amber-500 text-white px-2.5 py-1 rounded shadow-sm flex items-center gap-1">
+            <i class="fa-solid fa-plus text-[10px]"></i> 新建
+          </button>
+          <button id="btn-close-sidebar-mobile" class="md:hidden text-slate-400 hover:text-slate-700 p-1 ml-1 text-sm">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 筆記搜尋框 -->
+      <div class="p-2 border-b border-slate-100">
+        <div class="relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
+          <input type="text" id="note-search-input" class="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-amber-500" placeholder="搜尋筆記標題或內容...">
+        </div>
+      </div>
+
+      <!-- 筆記列表容器 -->
+      <div id="note-list" class="flex-1 overflow-y-auto p-2 space-y-1.5 text-xs">
+        <!-- 動態渲染文章項目 -->
+      </div>
+      
+      <!-- 底部字體狀態與自動儲存說明 -->
+      <div class="p-3 border-t border-slate-200 bg-slate-50 text-[11px] text-slate-500 space-y-1">
+        <div class="font-semibold text-slate-700 flex items-center gap-1">
+          <i class="fa-solid fa-shield-halved text-emerald-600"></i> 自動永久儲存中
+        </div>
+        <p>• 每一筆變更（包含字號）均會即時儲存至本機資料庫。</p>
+        <p>• 喃字字體 <code>NomNaTong</code> 已自動內嵌啟用。</p>
+      </div>
+    </aside>
+
+    <!-- 中間：A4 模擬編輯器畫布 -->
+    <div class="flex-1 overflow-auto p-2 sm:p-6 md:p-8 flex justify-center bg-slate-200/70 relative" id="editor-container">
+      
+      <!-- A4 紙張本體 -->
+      <div class="paper-sheet bg-white rounded-md p-6 sm:p-12 md:p-14 shadow-md transition-all duration-200 relative flex flex-col my-auto sm:my-0">
+        
+        <!-- 文章標題列 -->
+        <input 
+          type="text" 
+          id="current-note-title-input" 
+          class="w-full text-lg sm:text-2xl font-bold text-slate-800 border-b border-dashed border-slate-300 pb-2 mb-4 outline-none focus:border-amber-500 nom-editor-font transition" 
+          placeholder="請輸入筆記標題..."
+        />
+
+        <!-- 文件內容富文本編輯區 -->
+        <div 
+          id="editor" 
+          contenteditable="true" 
+          spellcheck="false"
+          class="nom-editor-font flex-1 outline-none text-slate-800 leading-relaxed text-[20px] select-text"
+          style="min-height: 200mm;"
+        >
+          <!-- 初始內容由 JS 自動載入 -->
+        </div>
+
+        <!-- 頁尾頁碼與狀態統計 -->
+        <div class="no-print mt-6 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-400 select-none gap-2">
+          <span id="char-count">總字元: 0 | 喃字/漢字: 0 | 詞數: 0</span>
+          <span>A4 筆記預覽 ‧ 漢喃文字工作站</span>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- 右側抽屜：常用喃字與越南語字符盤 -->
+    <aside id="char-panel" class="no-print fixed inset-y-0 right-0 w-80 bg-white shadow-2xl border-l border-slate-200 z-40 transform translate-x-full transition-transform duration-300 flex flex-col">
+      <div class="p-3.5 bg-slate-900 text-white flex items-center justify-between">
+        <h3 class="text-xs font-bold flex items-center gap-2">
+          <i class="fa-solid fa-keyboard text-amber-400"></i> 喃字與越南語字符盤
+        </h3>
+        <button id="btn-close-char-panel" class="text-slate-400 hover:text-white text-sm">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- 分類標籤 -->
+      <div class="flex border-b border-slate-200 bg-slate-50 text-xs select-none">
+        <button onclick="switchCharTab('nom-common')" class="char-tab flex-1 py-2 text-center font-semibold text-amber-700 border-b-2 border-amber-600">常用喃字</button>
+        <button onclick="switchCharTab('nom-ext')" class="char-tab flex-1 py-2 text-center text-slate-500 hover:text-slate-800">擴展喃字</button>
+        <button onclick="switchCharTab('viet-vowels')" class="char-tab flex-1 py-2 text-center text-slate-500 hover:text-slate-800">聲調母音</button>
+      </div>
+
+      <!-- 字符網格 -->
+      <div class="flex-1 overflow-y-auto p-3">
+        <!-- 常用喃字 -->
+        <div id="tab-nom-common" class="char-group grid grid-cols-4 gap-1.5 text-center"></div>
+
+        <!-- 擴展喃字 -->
+        <div id="tab-nom-ext" class="char-group grid grid-cols-4 gap-1.5 text-center hidden"></div>
+
+        <!-- 越南國語字特殊元音與聲調 -->
+        <div id="tab-viet-vowels" class="char-group grid grid-cols-5 gap-1.5 text-center hidden"></div>
+      </div>
+
+      <div class="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500">
+        點擊上方任一字符即可直接插入至編輯器游標處。
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- 底部狀態列 -->
+  <footer class="no-print bg-slate-800 text-slate-300 text-xs px-3 sm:px-4 py-1.5 flex items-center justify-between border-t border-slate-700 select-none">
+    <div class="flex items-center gap-2 sm:gap-3 text-[11px]">
+      <span class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="font-active-status">字型：Times New Roman + NomNaTong</span>
+      </span>
+      <span class="text-slate-500">|</span>
+      <span id="save-status" class="text-slate-400">已自動儲存</span>
+    </div>
+    <div class="flex items-center gap-2 text-[11px] text-slate-400">
+      <span id="current-doc-size-badge" class="bg-slate-700 px-1.5 py-0.5 rounded text-[10px]">20px</span>
+    </div>
+  </footer>
+
+  <!-- Modal：喃字標音 (Ruby) 輸入視窗 -->
+  <div id="ruby-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 transform transition-all">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <i class="fa-solid fa-language text-amber-600"></i> 為喃字標註越南羅馬字 (Ruby)
+        </h3>
+        <button onclick="closeRubyModal()" class="text-slate-400 hover:text-slate-600">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="py-4 space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">基底文字（漢喃字）：</label>
+          <input type="text" id="ruby-base-text" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base nom-editor-font focus:ring-2 focus:ring-amber-500 outline-none" placeholder="例如：𡨸喃">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">上標讀音（國語字 / 羅馬字）：</label>
+          <input type="text" id="ruby-rt-text" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base times-font focus:ring-2 focus:ring-amber-500 outline-none" placeholder="例如：Chữ Nôm">
+        </div>
+        <div class="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-800 text-[11px] flex items-start gap-2">
+          <i class="fa-solid fa-lightbulb mt-0.5 text-amber-600"></i>
+          <span>將產生如 <code>&lt;ruby&gt;𡨸喃&lt;rt&gt;Chữ Nôm&lt;/rt&gt;&lt;/ruby&gt;</code> 的標準上標效果。</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="closeRubyModal()" class="px-3 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50">取消</button>
+        <button onclick="applyRubyText()" class="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold shadow">套用標註</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript 核心控制邏輯 -->
+  <script>
+    const STORAGE_KEY_NOTES = 'HANNOM_NOTES_DATA_V2';
+    const STORAGE_KEY_CURRENT = 'HANNOM_CURRENT_NOTE_ID_V2';
+    const DB_NAME = 'NomNaTongNotesDB_V2';
+    const DB_VERSION = 1;
+    let db = null;
+
+    // 常用喃字與擴展喃字庫
+    const commonNomList = [
+      '𡨸', '喃', '𡗶', '渃', '𠊛', '𡀯', '𥘄', '𣎃', '𣇟', '買',
+      '朱', '沒', '馭', '㗂', '㐌', '拯', '固', '吝', '羅', '娘',
+      '𨤔', '𥪞', '𡎝', '𣛤', '峼', '𤽸', '𤑟', '𢚸', '𤞺', '妬',
+      '拯', '𠮾', '哴', '𧡊', '𤯩', '別', '㛪', '制', '隊', '𦎛'
+    ];
+
+    const extNomList = [
+      '𡨸', '𡚸', '𠀧', '𠄩', '𦒹', '𤾓', '𠦳', '𣋚', '𡎝', '𡏦',
+      '𥪝', '𡦂', '𠮯', '𦝄', '𣈜', '𣎃', '𢆥', '𣄽', '𣌋', '𤇍',
+      '𡌄', '𥺊', '𣵳', '𤅶', '𣷭', '𡐙', '𡍅', '𡓱', '𤁕', '𤅎'
+    ];
+
+    const vietVowelsList = [
+      'à', 'á', 'ả', 'ã', 'ạ', 'ă', 'ằ', 'ắ', 'ẳ', 'ẵ', 'ặ',
+      'â', 'ầ', 'ấ', 'ẩ', 'ẫ', 'ậ', 'è', 'é', 'ẻ', 'ẽ', 'ẹ',
+      'ê', 'ề', 'ế', 'ể', 'ễ', 'ệ', 'ì', 'í', 'ỉ', 'ĩ', 'ị',
+      'ò', 'ó', 'ỏ', 'õ', 'ọ', 'ô', 'ồ', 'ố', 'ổ', 'ỗ', 'ộ',
+      'ơ', 'ờ', 'ớ', 'ở', 'ỡ', 'ợ', 'ù', 'ú', 'ủ', 'ũ', 'ụ',
+      'ư', 'ừ', 'ứ', 'ử', 'ữ', 'ự', 'ỳ', 'ý', 'ỷ', 'ỹ', 'ỵ',
+      'đ', 'Đ'
+    ];
+
+    let notes = [];
+    let currentNoteId = null;
+    let savedSelection = null;
+    let autoSaveTimer = null;
+
+    const editor = document.getElementById('editor');
+    const noteTitleInput = document.getElementById('current-note-title-input');
+    const fontSizeSelect = document.getElementById('font-size-select');
+    const charCountEl = document.getElementById('char-count');
+    const saveStatusEl = document.getElementById('save-status');
+    const sizeBadgeEl = document.getElementById('current-doc-size-badge');
+    const sidebarNotes = document.getElementById('sidebar-notes');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+    // 1. 初始化資料庫 (IndexedDB)
+    function initDB() {
+      return new Promise((resolve) => {
+        try {
+          const req = indexedDB.open(DB_NAME, DB_VERSION);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            if (!d.objectStoreNames.contains('notes')) {
+              d.createObjectStore('notes', { keyPath: 'id' });
+            }
+          };
+          req.onsuccess = (e) => {
+            db = e.target.result;
+            resolve(db);
+          };
+          req.onerror = () => resolve(null);
+        } catch(err) {
+          resolve(null);
+        }
+      });
+    }
+
+    // 2. 雙軌永久儲存載入（優先 LocalStorage 零延遲，次由 IndexedDB 補強）
+    async function loadAllNotes() {
+      let loadedNotes = [];
+      
+      // 先從 LocalStorage 讀取
+      try {
+        const localData = localStorage.getItem(STORAGE_KEY_NOTES);
+        if (localData) {
+          loadedNotes = JSON.parse(localData);
+        }
+      } catch (e) {
+        console.warn('LocalStorage 讀取失敗:', e);
+      }
+
+      // 若 LocalStorage 無資料，從 IndexedDB 嘗試載入
+      if ((!loadedNotes || loadedNotes.length === 0) && db) {
+        try {
+          loadedNotes = await new Promise((resolve) => {
+            const tx = db.transaction('notes', 'readonly');
+            const store = tx.objectStore('notes');
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+          });
+        } catch (e) {
+          console.warn('IndexedDB 讀取失敗:', e);
+        }
+      }
+
+      // 如果完全沒有過往筆記，建立初始範例筆記
+      if (!loadedNotes || loadedNotes.length === 0) {
+        const defaultNote = {
+          id: 'note_' + Date.now(),
+          title: '南國山河 (漢喃對照經典)',
+          content: `
+            <h2 style="font-size: 1.5em; text-align: center; margin-bottom: 0.5em; font-weight: bold; color: #78350f;">
+              <ruby>南國山河<rt>Nam quốc sơn hà</rt></ruby>
+            </h2>
+            <p style="text-align: center; color: #64748b; font-size: 0.85em; margin-bottom: 1.5em;" class="times-font">
+              Lý Thường Kiệt (1019–1105) ‧ 漢喃文字對照
+            </p>
+            <p style="margin-bottom: 0.8em;"><ruby>南國山河南帝居<rt>Nam quốc sơn hà Nam đế cư</rt></ruby></p>
+            <p style="margin-bottom: 0.8em;"><ruby>截然定分在天書<rt>Tiệt nhiên định phận tại thiên thư</rt></ruby></p>
+            <p style="margin-bottom: 0.8em;"><ruby>如何逆虜來侵犯<rt>Như hà nghịch lỗ lai xâm phạm</rt></ruby></p>
+            <p style="margin-bottom: 1.5em;"><ruby>汝等行看取敗虛<rt>Nhữ đẳng hành khan thủ bại hư</rt></ruby></p>
+            <hr style="border: 0; border-top: 1px dashed #cbd5e1; margin: 1.5em 0;">
+            <h3 style="font-size: 1.15em; font-weight: bold; color: #1e293b; margin-bottom: 0.5em;">常用越南喃字（𡨸喃）詞例：</h3>
+            <ul style="list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; font-size: 0.95em;">
+              <li><ruby>𡗶<rt>Trời</rt></ruby> 代表「天空、上蒼」（Sky/Heaven）</li>
+              <li><ruby>渃<rt>Nước</rt></ruby> 代表「水、國家」（Water/Country）</li>
+              <li><ruby>𠊛<rt>Người</rt></ruby> 代表「人」（Person）</li>
+              <li><ruby>𡀯<rt>Ăn</rt></ruby> 代表「吃」（Eat）</li>
+            </ul>
+            <p style="color: #475569; font-size: 0.9em;">
+              字體已自動配置：喃字為 <strong>NomNaTong</strong>，越南羅馬字為 <strong>Times New Roman</strong>。文字大小與所有編輯均已永久自動儲存！
+            </p>
+          `,
+          fontSize: '20px',
+          isVertical: false,
+          updatedAt: new Date().toISOString()
+        };
+        loadedNotes = [defaultNote];
+      }
+
+      notes = loadedNotes;
+
+      // 還原上次閱讀的文章 ID
+      const lastId = localStorage.getItem(STORAGE_KEY_CURRENT);
+      if (lastId && notes.some(n => n.id === lastId)) {
+        currentNoteId = lastId;
+      } else {
+        currentNoteId = notes[0].id;
+      }
+
+      // 同步備份一次確保兩端一致
+      persistAllNotes();
+      displayCurrentNote();
+      renderNoteList();
+    }
+
+    // 3. 永久保存筆記（LocalStorage + IndexedDB）
+    function persistAllNotes() {
+      try {
+        localStorage.setItem(STORAGE_KEY_NOTES, JSON.stringify(notes));
+        if (currentNoteId) {
+          localStorage.setItem(STORAGE_KEY_CURRENT, currentNoteId);
+        }
+      } catch (e) {
+        console.error('LocalStorage 存檔失敗:', e);
+      }
+
+      // 同步寫入 IndexedDB
+      if (db) {
+        try {
+          const tx = db.transaction('notes', 'readwrite');
+          const store = tx.objectStore('notes');
+          notes.forEach(note => store.put(note));
+        } catch (e) {
+          console.warn('IndexedDB 寫入失敗:', e);
+        }
+      }
+    }
+
+    // 4. 呈現當前筆記
+    function displayCurrentNote() {
+      const activeNote = notes.find(n => n.id === currentNoteId);
+      if (!activeNote) return;
+
+      noteTitleInput.value = activeNote.title || '未命名筆記';
+      editor.innerHTML = activeNote.content || '';
+      
+      // 還原該篇筆記專屬字體大小（預設 20px）
+      const docSize = activeNote.fontSize || '20px';
+      editor.style.fontSize = docSize;
+      fontSizeSelect.value = docSize;
+      sizeBadgeEl.textContent = docSize;
+
+      // 還原直排 / 橫排狀態
+      if (activeNote.isVertical) {
+        editor.classList.add('vertical-mode');
+        document.getElementById('layout-text').textContent = '橫書模式';
+        editor.style.minHeight = '180mm';
+      } else {
+        editor.classList.remove('vertical-mode');
+        document.getElementById('layout-text').textContent = '直書模式';
+        editor.style.minHeight = '200mm';
+      }
+
+      updateCounts();
+      updateTotalNotesCount();
+    }
+
+    // 5. 即時防抖自動儲存
+    function triggerAutoSave() {
+      saveStatusEl.textContent = '儲存中...';
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(() => {
+        saveCurrentNoteImmediately();
+      }, 300);
+    }
+
+    function saveCurrentNoteImmediately() {
+      if (!currentNoteId) return;
+      const activeNote = notes.find(n => n.id === currentNoteId);
+      if (!activeNote) return;
+
+      activeNote.title = noteTitleInput.value.trim() || '未命名筆記';
+      activeNote.content = editor.innerHTML;
+      activeNote.fontSize = fontSizeSelect.value || '20px';
+      activeNote.isVertical = editor.classList.contains('vertical-mode');
+      activeNote.updatedAt = new Date().toISOString();
+
+      persistAllNotes();
+      renderNoteList();
+      saveStatusEl.textContent = '已於 ' + new Date().toLocaleTimeString() + ' 自動儲存';
+    }
+
+    // 6. 更改文章整體字號（並記錄至資料庫）
+    function changeDocFontSize(size) {
+      const selection = window.getSelection();
+      
+      // 若有選取特定文字區塊，則僅更改選取區域；否則更改整篇筆記的基準字號
+      if (selection && selection.rangeCount > 0 && !selection.isCollapsed && editor.contains(selection.anchorNode)) {
+        const span = document.createElement('span');
+        span.style.fontSize = size;
+        const range = selection.getRangeAt(0);
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+      } else {
+        editor.style.fontSize = size;
+      }
+
+      sizeBadgeEl.textContent = size;
+
+      // 儲存至當前筆記物件
+      const activeNote = notes.find(n => n.id === currentNoteId);
+      if (activeNote) {
+        activeNote.fontSize = size;
+      }
+      triggerAutoSave();
+    }
+
+    // 7. 渲染左側文章清單（支援關鍵字搜尋）
+    function renderNoteList(filterText = '') {
+      const listContainer = document.getElementById('note-list');
+      const keyword = (filterText || '').toLowerCase().trim();
+
+      const filteredNotes = notes.filter(n => 
+        (n.title && n.title.toLowerCase().includes(keyword)) ||
+        (n.content && n.content.toLowerCase().includes(keyword))
+      );
+
+      if (filteredNotes.length === 0) {
+        listContainer.innerHTML = `
+          <div class="text-center py-8 text-slate-400">
+            <i class="fa-solid fa-folder-open text-2xl mb-2"></i>
+            <p>無符合的記事</p>
+          </div>
+        `;
+        return;
+      }
+
+      listContainer.innerHTML = filteredNotes.map(note => `
+        <div class="p-2.5 rounded-lg border ${note.id === currentNoteId ? 'bg-amber-50 border-amber-400 text-amber-950 font-semibold shadow-sm' : 'bg-white border-slate-200 text-slate-700'} hover:border-amber-300 cursor-pointer transition flex items-center justify-between group" onclick="switchNote('${note.id}')">
+          <div class="truncate flex-1 pr-2">
+            <div class="truncate text-xs sm:text-sm">${escapeHtml(note.title || '未命名筆記')}</div>
+            <div class="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+              <span>${new Date(note.updatedAt).toLocaleDateString()}</span>
+              <span class="bg-slate-100 px-1 rounded text-slate-500">${note.fontSize || '20px'}</span>
+            </div>
+          </div>
+          <button onclick="deleteNote('${note.id}', event)" class="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 text-slate-400 hover:text-red-600 p-1.5 rounded hover:bg-red-50 text-xs transition shrink-0" title="刪除記事">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+      `).join('');
+
+      updateTotalNotesCount();
+    }
+
+    function updateTotalNotesCount() {
+      const el = document.getElementById('total-notes-count');
+      if (el) el.textContent = notes.length;
+    }
+
+    // 8. 切換筆記（手機端點擊後自動關閉側邊欄）
+    function switchNote(id) {
+      if (currentNoteId === id) {
+        closeMobileSidebar();
+        return;
+      }
+      saveCurrentNoteImmediately();
+      currentNoteId = id;
+      displayCurrentNote();
+      renderNoteList();
+      closeMobileSidebar();
+      showToast('已切換記事');
+    }
+
+    // 9. 新增筆記
+    function createNewDoc() {
+      saveCurrentNoteImmediately();
+      const newId = 'note_' + Date.now();
+      const newNote = {
+        id: newId,
+        title: '未命名喃字記事',
+        content: '<p><ruby>𡨸喃<rt>Chữ Nôm</rt></ruby>&nbsp;請在此輸入新的越南喃字內容...</p>',
+        fontSize: '20px',
+        isVertical: false,
+        updatedAt: new Date().toISOString()
+      };
+
+      notes.unshift(newNote);
+      currentNoteId = newId;
+      persistAllNotes();
+      displayCurrentNote();
+      renderNoteList();
+      closeMobileSidebar();
+      noteTitleInput.focus();
+      showToast('已新增空白筆記');
+    }
+
+    // 10. 刪除筆記
+    function deleteNote(id, e) {
+      if (e) e.stopPropagation();
+
+      if (notes.length <= 1) {
+        showToast('請至少保留一篇記事！');
+        return;
+      }
+
+      if (confirm('確定要刪除此篇記事嗎？')) {
+        notes = notes.filter(n => n.id !== id);
+        
+        // 自 IndexedDB 移除
+        if (db) {
+          try {
+            const tx = db.transaction('notes', 'readwrite');
+            tx.objectStore('notes').delete(id);
+          } catch(err){}
+        }
+
+        if (currentNoteId === id) {
+          currentNoteId = notes[0].id;
+        }
+
+        persistAllNotes();
+        displayCurrentNote();
+        renderNoteList();
+        showToast('記事已刪除');
+      }
+    }
+
+    // 11. 手機側邊欄開關控制
+    function openMobileSidebar() {
+      sidebarNotes.classList.remove('-translate-x-full');
+      sidebarBackdrop.classList.remove('hidden');
+    }
+
+    function closeMobileSidebar() {
+      if (window.innerWidth < 768) {
+        sidebarNotes.classList.add('-translate-x-full');
+        sidebarBackdrop.classList.add('hidden');
+      }
+    }
+
+    // 12. 直書 / 橫書切換
+    function toggleVerticalLayout() {
+      const isVertical = editor.classList.toggle('vertical-mode');
+      const layoutText = document.getElementById('layout-text');
+      const activeNote = notes.find(n => n.id === currentNoteId);
+
+      if (isVertical) {
+        layoutText.textContent = '橫書模式';
+        editor.style.minHeight = '180mm';
+        if (activeNote) activeNote.isVertical = true;
+        showToast('已切換為古典直排 (豎排)');
+      } else {
+        layoutText.textContent = '直書模式';
+        editor.style.minHeight = '200mm';
+        if (activeNote) activeNote.isVertical = false;
+        showToast('已切換為標準橫排');
+      }
+      triggerAutoSave();
+    }
+
+    // 13. 富文本標準指令
+    function execCmd(command, value = null) {
+      document.execCommand(command, false, value);
+      editor.focus();
+      updateCounts();
+      triggerAutoSave();
+    }
+
+    function setTextColor(color) {
+      document.getElementById('text-color-preview').style.backgroundColor = color;
+      document.execCommand('foreColor', false, color);
+      triggerAutoSave();
+    }
+
+    function setHighlightColor(color) {
+      document.getElementById('bg-color-preview').style.backgroundColor = color;
+      document.execCommand('hiliteColor', false, color);
+      triggerAutoSave();
+    }
+
+    // 14. Ruby 標音對話盒
+    function openRubyModal() {
+      const selection = window.getSelection();
+      let selectedText = '';
+      if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+        savedSelection = selection.getRangeAt(0).cloneRange();
+        selectedText = selection.toString().trim();
+      }
+
+      document.getElementById('ruby-base-text').value = selectedText;
+      document.getElementById('ruby-rt-text').value = '';
+      document.getElementById('ruby-modal').classList.remove('hidden');
+      setTimeout(() => document.getElementById(selectedText ? 'ruby-rt-text' : 'ruby-base-text').focus(), 50);
+    }
+
+    function closeRubyModal() {
+      document.getElementById('ruby-modal').classList.add('hidden');
+    }
+
+    function applyRubyText() {
+      const base = document.getElementById('ruby-base-text').value.trim();
+      const rt = document.getElementById('ruby-rt-text').value.trim();
+
+      if (!base) {
+        showToast('請輸入基底喃字！');
+        return;
+      }
+
+      const rubyHtml = `<ruby>${escapeHtml(base)}<rt>${escapeHtml(rt)}</rt></ruby>&nbsp;`;
+
+      editor.focus();
+      if (savedSelection) {
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedSelection);
+        document.execCommand('insertHTML', false, rubyHtml);
+      } else {
+        document.execCommand('insertHTML', false, rubyHtml);
+      }
+
+      closeRubyModal();
+      updateCounts();
+      triggerAutoSave();
+    }
+
+    // 15. 側邊字符盤
+    function initCharPanel() {
+      renderCharGroup('tab-nom-common', commonNomList);
+      renderCharGroup('tab-nom-ext', extNomList);
+      renderCharGroup('tab-viet-vowels', vietVowelsList, 'times-font text-sm sm:text-base');
+    }
+
+    function renderCharGroup(containerId, list, extraClass = 'nom-editor-font text-base sm:text-lg') {
+      const container = document.getElementById(containerId);
+      container.innerHTML = list.map(ch => `
+        <button onclick="insertCharacter('${ch}')" class="p-2 border border-slate-200 rounded-lg hover:bg-amber-50 hover:border-amber-400 hover:text-amber-700 transition flex items-center justify-center ${extraClass}">
+          ${ch}
+        </button>
+      `).join('');
+    }
+
+    function switchCharTab(tab) {
+      document.querySelectorAll('.char-tab').forEach(b => {
+        b.classList.remove('font-semibold', 'text-amber-700', 'border-b-2', 'border-amber-600');
+        b.classList.add('text-slate-500');
+      });
+      event.target.classList.add('font-semibold', 'text-amber-700', 'border-b-2', 'border-amber-600');
+      event.target.classList.remove('text-slate-500');
+
+      document.getElementById('tab-nom-common').classList.add('hidden');
+      document.getElementById('tab-nom-ext').classList.add('hidden');
+      document.getElementById('tab-viet-vowels').classList.add('hidden');
+
+      if (tab === 'nom-common') document.getElementById('tab-nom-common').classList.remove('hidden');
+      if (tab === 'nom-ext') document.getElementById('tab-nom-ext').classList.remove('hidden');
+      if (tab === 'viet-vowels') document.getElementById('tab-viet-vowels').classList.remove('hidden');
+    }
+
+    function insertCharacter(char) {
+      editor.focus();
+      document.execCommand('insertText', false, char);
+      updateCounts();
+      triggerAutoSave();
+    }
+
+    // 16. 字數精準統計
+    function updateCounts() {
+      const text = editor.innerText || '';
+      const totalChars = text.replace(/\s/g, '').length;
+      
+      // 計算所有漢字與擴展區喃字 (Ext A/B/C/D/E/F/G)
+      const nomMatches = text.match(/[\u4E00-\u9FFF\u3400-\u4DBF\u{20000}-\u{2EBEF}]/ug) || [];
+      const nomCount = nomMatches.length;
+      const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+
+      charCountEl.textContent = `總字元: ${totalChars} | 喃字/漢字: ${nomCount} | 總詞數: ${words}`;
+    }
+
+    // 17. 匯出獨立 HTML
+    function exportHTML() {
+      const title = noteTitleInput.value.trim() || '漢喃筆記';
+      const content = editor.innerHTML;
+      const currentFontSize = fontSizeSelect.value || '20px';
+
+      const htmlDoc = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(title)}</title>
+<style>
+  @font-face {
+    font-family: 'NomNaTongEmbed';
+    src: local('NomNaTong'), url('https://cdn.jsdelivr.net/gh/chunom/nomnatong@master/NomNaTong-Regular.ttf') format('truetype');
+  }
+  body {
+    font-family: 'Times New Roman', 'Times', 'NomNaTongEmbed', 'NomNaTong', serif;
+    font-size: ${currentFontSize};
+    line-height: 1.8;
+    max-width: 850px;
+    margin: 30px auto;
+    padding: 24px;
+    color: #1e293b;
+  }
+  ruby { ruby-align: center; }
+  rt { font-family: 'Times New Roman', serif; font-size: 0.6em; color: #0284c7; }
+</style>
+</head>
+<body>
+  <h1 style="text-align: center; margin-bottom: 2rem;">${escapeHtml(title)}</h1>
+  ${content}
+</body>
+</html>`;
+
+      const blob = new Blob([htmlDoc], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${title.replace(/[\/\\?%*:|"<>]/g, '_')}_${new Date().toISOString().slice(0,10)}.html`;
+      a.click();
+      showToast('已匯出 HTML 文件');
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-12 left-1/2 -translate-x-1/2 bg-slate-900/95 text-white px-4 py-2 rounded-full text-xs shadow-2xl z-50 transition-all opacity-0 flex items-center gap-2 border border-slate-700';
+      toast.innerHTML = `<i class="fa-solid fa-circle-check text-amber-400"></i> ${msg}`;
+      document.body.appendChild(toast);
+
+      setTimeout(() => toast.classList.remove('opacity-0'), 10);
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, 2200);
+    }
+
+    // 18. 生命週期與事件綁定
+    window.addEventListener('DOMContentLoaded', async () => {
+      initCharPanel();
+      await initDB();
+      await loadAllNotes();
+
+      // 監聽編輯輸入
+      editor.addEventListener('input', () => {
+        updateCounts();
+        triggerAutoSave();
+      });
+
+      noteTitleInput.addEventListener('input', () => {
+        triggerAutoSave();
+      });
+
+      // 搜尋筆記
+      document.getElementById('note-search-input').addEventListener('input', (e) => {
+        renderNoteList(e.target.value);
+      });
+
+      // 手機側邊欄開關
+      document.getElementById('btn-toggle-mobile-sidebar').addEventListener('click', openMobileSidebar);
+      document.getElementById('btn-quick-open-notes').addEventListener('click', openMobileSidebar);
+      document.getElementById('btn-close-sidebar-mobile').addEventListener('click', closeMobileSidebar);
+      sidebarBackdrop.addEventListener('click', closeMobileSidebar);
+
+      // 直書/橫書切換
+      document.getElementById('btn-toggle-vertical').addEventListener('click', toggleVerticalLayout);
+
+      // 字符盤側邊抽屜
+      document.getElementById('btn-char-picker').addEventListener('click', () => {
+        document.getElementById('char-panel').classList.remove('translate-x-full');
+      });
+      document.getElementById('btn-close-char-panel').addEventListener('click', () => {
+        document.getElementById('char-panel').classList.add('translate-x-full');
+      });
+
+      // Ruby 標音對話盒
+      document.getElementById('btn-ruby-dialog').addEventListener('click', openRubyModal);
+
+      // 匯出與列印
+      document.getElementById('btn-print').addEventListener('click', () => window.print());
+      document.getElementById('btn-export-html').addEventListener('click', exportHTML);
+      document.getElementById('btn-save-note').addEventListener('click', () => {
+        saveCurrentNoteImmediately();
+        showToast('筆記已成功永久儲存！');
+      });
+
+      document.getElementById('btn-new-doc').addEventListener('click', createNewDoc);
+      document.getElementById('btn-add-note-tab').addEventListener('click', createNewDoc);
+
+      // 視窗離開前強制儲存一次
+      window.addEventListener('beforeunload', () => {
+        saveCurrentNoteImmediately();
+      });
+    });
+  </script>
+</body>
+</html>
